@@ -44,24 +44,21 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final userProvider = Provider.of<UserProvider>(context, listen: false);
 
-    // Создаем пользователя
-    final user = User(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+    // Обновляем профиль пользователя через API
+    final success = await authProvider.updateProfile(
       name: '${_firstNameController.text} ${_lastNameController.text}',
       username: _usernameController.text.isEmpty
           ? _generateUsername(_firstNameController.text, _lastNameController.text)
           : _usernameController.text,
       avatarUrl: _selectedAvatar,
-      isOnline: true,
-      lastSeen: DateTime.now(),
-      phoneNumber: authProvider.currentPhoneNumber,
     );
 
-    // Сохраняем пользователя
-    userProvider.setCurrentUser(user);
-    
-    // Авторизуем пользователя
-    authProvider.login();
+    if (!success) {
+      return; // Ошибка уже показана в AuthProvider
+    }
+
+    // Загружаем данные пользователя из API после успешного обновления
+    await userProvider.loadCurrentUser();
 
     if (mounted) {
       Navigator.of(context).pushNamedAndRemoveUntil(

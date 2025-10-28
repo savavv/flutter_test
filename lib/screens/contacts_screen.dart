@@ -6,6 +6,7 @@ import '../models/user.dart';
 import '../models/chat.dart';
 import '../widgets/custom_app_bar.dart';
 import 'chat_screen.dart';
+import '../services/api_service.dart';
 
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen({super.key});
@@ -130,9 +131,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Widget _buildContactsList() {
+    final userProvider = Provider.of<UserProvider>(context);
+    final allContacts = [..._mockContacts, ...userProvider.contacts];
     final filteredContacts = _searchController.text.isEmpty
-        ? _mockContacts
-        : _mockContacts.where((contact) {
+        ? allContacts
+        : allContacts.where((contact) {
             final query = _searchController.text.toLowerCase();
             return contact.name.toLowerCase().contains(query) ||
                    contact.username.toLowerCase().contains(query) ||
@@ -300,43 +303,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   void _startChat(User contact) {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    
-    // Check if chat already exists
-    final existingChat = chatProvider.chats.firstWhere(
-      (chat) => chat.participants.contains(contact.id),
-      orElse: () => Chat(
-        id: '',
-        name: '',
-        type: ChatType.private,
-        participants: [],
-        lastActivity: DateTime.now(),
+    final chat = chatProvider.ensurePrivateChatWith(contact.id, contact.name, contactAvatar: contact.avatarUrl);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(chatId: chat.id),
       ),
     );
-
-    if (existingChat.id.isNotEmpty) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => ChatScreen(chatId: existingChat.id),
-        ),
-      );
-    } else {
-      // Create new chat
-      final newChat = Chat(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: contact.name,
-        avatarUrl: contact.avatarUrl,
-        type: ChatType.private,
-        participants: ['current_user', contact.id],
-        lastActivity: DateTime.now(),
-      );
-
-      chatProvider.addChat(newChat);
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => ChatScreen(chatId: newChat.id),
-        ),
-      );
-    }
   }
 
   void _makeCall(User contact, bool isVideo) {
@@ -401,7 +373,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   void _showAddContactDialog() {
-    final phoneController = TextEditingController();
+    final queryController = TextEditingController();
+    final isPhone = ValueNotifier<bool>(true);
     
     showDialog(
       context: context,
@@ -410,14 +383,45 @@ class _ContactsScreenState extends State<ContactsScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(
-              controller: phoneController,
-              decoration: const InputDecoration(
-                labelText: 'Номер телефона',
-                hintText: '+7 (999) 123-45-67',
-                prefixIcon: Icon(Icons.phone),
-              ),
-              keyboardType: TextInputType.phone,
+            Row(
+              children: [
+                const Text('Поиск по:'),
+                const SizedBox(width: 8),
+                ValueListenableBuilder<bool>(
+                  valueListenable: isPhone,
+                  builder: (_, value, __) {
+                    return ToggleButtons(
+                      isSelected: [value, !value],
+                      onPressed: (index) => isPhone.value = index == 0,
+                      children: const [
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('Телефон'),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('Username'),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<bool>(
+              valueListenable: isPhone,
+              builder: (_, value, __) {
+                return TextField(
+                  controller: queryController,
+                  decoration: InputDecoration(
+                    labelText: value ? 'Номер телефона' : 'Username',
+                    hintText: value ? '+7 (999) 123-45-67' : '@username',
+                    prefixIcon: Icon(value ? Icons.phone : Icons.alternate_email),
+                  ),
+                  keyboardType: value ? TextInputType.phone : TextInputType.text,
+                );
+              },
             ),
           ],
         ),
@@ -427,9 +431,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
             child: const Text('Отмена'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
+              final query = queryController.text.trim();
+              if (query.isEmpty) return;
+              final isPhoneValue = isPhone.value;
               Navigator.pop(context);
-              _addContact(phoneController.text);
+              await _addContactViaApi(query, isPhoneValue);
             },
             child: const Text('Добавить'),
           ),
@@ -438,29 +445,43 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
-  void _addContact(String phoneNumber) {
-    if (phoneNumber.isEmpty) return;
-    
-    final newContact = User(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: 'Новый контакт',
-      username: 'new_contact_${DateTime.now().millisecondsSinceEpoch}',
-      phoneNumber: phoneNumber,
-      isOnline: false,
-      lastSeen: DateTime.now(),
-      avatarUrl: null,
-    );
+  Future<void> _addContactViaApi(String query, bool byPhone) async {
+    final userProvider = Provider.of<UserProvider>(context, listen: false);
+    try {
+      final normalized = byPhone
+          ? query
+          : (query.startsWith('@') ? query.substring(1) : query);
 
-    setState(() {
-      _mockContacts.add(newContact);
-    });
+      // Используем /users/search?query=... (бэкенд поддерживает contains по телефону/юзернейму/имени)
+      final results = await apiService.searchUsersByQuery(normalized);
+      if (results.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Пользователь не найден'), backgroundColor: Colors.orange),
+        );
+        return;
+      }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Контакт добавлен'),
-        backgroundColor: Colors.green,
-      ),
-    );
+      // Берем первый релевантный результат
+      final userJson = results.first as Map<String, dynamic>;
+      final user = User(
+        id: userJson['id'].toString(),
+        name: '${userJson['first_name'] ?? ''} ${userJson['last_name'] ?? ''}'.trim(),
+        username: userJson['username'] ?? '',
+        avatarUrl: userJson['avatar_url'],
+        isOnline: userJson['is_online'] ?? false,
+        lastSeen: userJson['last_seen'] != null ? DateTime.parse(userJson['last_seen']) : DateTime.now(),
+        phoneNumber: userJson['phone_number'] ?? '',
+      );
+      userProvider.addContact(user);
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Контакт добавлен'), backgroundColor: Colors.green),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось добавить: $e'), backgroundColor: Colors.red),
+      );
+    }
   }
 
   String _formatLastSeen(DateTime lastSeen) {

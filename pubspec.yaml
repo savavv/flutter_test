@@ -51,6 +51,16 @@ dependencies:
   
   # Fonts
   google_fonts: ^6.2.1
+  
+  # HTTP client for API calls
+  http: ^1.1.0
+  dio: ^5.3.2
+  web_socket_channel: ^2.4.0
+  shared_preferences: ^2.3.2
+  cryptography: ^2.7.0
+  
+  # JSON serialization
+  json_annotation: ^4.8.1
 
 dev_dependencies:
   flutter_test:
@@ -62,6 +72,10 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  
+  # JSON serialization code generation
+  json_serializable: ^6.7.1
+  build_runner: ^2.4.7
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

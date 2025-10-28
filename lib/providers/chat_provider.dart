@@ -1,13 +1,21 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/status.dart' as ws_status;
+import 'package:provider/provider.dart';
+import '../services/api_service.dart';
+import 'auth_provider.dart';
 
 class ChatProvider with ChangeNotifier {
   List<Chat> _chats = [];
   Map<String, List<Message>> _messages = {};
   String? _selectedChatId;
   bool _isLoading = false;
+  WebSocketChannel? _channel;
+  bool get isWsConnected => _channel != null;
 
   List<Chat> get chats => _chats;
   String? get selectedChatId => _selectedChatId;
@@ -27,6 +35,39 @@ class ChatProvider with ChangeNotifier {
     } catch (e) {
       return null;
     }
+  }
+
+  Future<void> connectGlobalWebSocket(BuildContext context) async {
+    try {
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final token = auth.accessToken;
+      if (token == null) return;
+      final url = apiService.getWebSocketUrl(accessToken: token);
+      if (kDebugMode) {
+        print('Connecting WS: $url');
+      }
+      _channel?.sink.close(ws_status.goingAway);
+      _channel = WebSocketChannel.connect(Uri.parse(url));
+      _channel!.stream.listen((event) {
+        if (kDebugMode) {
+          print('WS message: $event');
+        }
+        // TODO: parse and route events into providers/state as needed
+      }, onError: (error) {
+        if (kDebugMode) {
+          print('WS error: $error');
+        }
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        print('WS connect error: $e');
+      }
+    }
+  }
+
+  void disconnectWebSocket() {
+    _channel?.sink.close(ws_status.normalClosure);
+    _channel = null;
   }
 
   void setChats(List<Chat> chats) {
@@ -58,6 +99,31 @@ class ChatProvider with ChangeNotifier {
       _selectedChatId = null;
     }
     notifyListeners();
+  }
+
+  // Создание локального чата с контактом (если нет)
+  Chat ensurePrivateChatWith(String contactId, String contactName, {String? contactAvatar}) {
+    final existing = _chats.firstWhere(
+      (c) => c.type == ChatType.private && c.participants.contains(contactId),
+      orElse: () => Chat(
+        id: '',
+        name: '',
+        type: ChatType.private,
+        participants: const [],
+        lastActivity: DateTime.now(),
+      ),
+    );
+    if (existing.id.isNotEmpty) return existing;
+    final newChat = Chat(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: contactName,
+      avatarUrl: contactAvatar,
+      type: ChatType.private,
+      participants: ['current_user', contactId],
+      lastActivity: DateTime.now(),
+    );
+    addChat(newChat);
+    return newChat;
   }
 
   void selectChat(String? chatId) {

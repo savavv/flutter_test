@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/user_provider.dart';
 import 'providers/auth_provider.dart';
+import 'providers/theme_provider.dart';
 import 'models/user.dart';
 import 'screens/chats_screen.dart';
 import 'screens/settings_screen.dart';
@@ -10,8 +11,15 @@ import 'screens/contacts_screen.dart';
 import 'screens/calls_screen.dart';
 import 'screens/phone_auth_screen.dart';
 import 'theme/app_theme.dart';
+import 'services/notification_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Инициализируем сервис уведомлений
+  await notificationService.initialize();
+  await notificationService.requestPermissions();
+  
   runApp(const TelegramApp());
 }
 
@@ -22,15 +30,16 @@ class TelegramApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => UserProvider()),
       ],
       child: MaterialApp(
-        title: 'Telegram Clone',
+        title: 'KS54 Messanger',
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.light,
+        themeMode: context.watch<ThemeProvider?>()?.themeMode ?? ThemeMode.light,
         home: const AuthWrapper(),
         routes: {
           '/main': (context) => const MainScreen(),
@@ -80,24 +89,37 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeUser();
+      // Подключаем глобальный WebSocket после входа
+      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      chatProvider.connectGlobalWebSocket(context);
+      // Реагируем на смену состояния авторизации
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      authProvider.addListener(_onAuthChanged);
     });
+  }
+
+  void _onAuthChanged() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (authProvider.isAuthenticated) {
+      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      chatProvider.connectGlobalWebSocket(context);
+    }
+  }
+
+  @override
+  void dispose() {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      authProvider.removeListener(_onAuthChanged);
+    } catch (_) {}
+    super.dispose();
   }
 
   void _initializeUser() {
     final userProvider = Provider.of<UserProvider>(context, listen: false);
     
-    // Mock current user
-    final currentUser = User(
-      id: 'current_user',
-      name: 'Ваше имя',
-      username: 'your_username',
-      avatarUrl: 'https://via.placeholder.com/150',
-      isOnline: true,
-      lastSeen: DateTime.now(),
-      phoneNumber: '+7 (999) 000-00-00',
-    );
-
-    userProvider.setCurrentUser(currentUser);
+    // Загружаем данные пользователя из API
+    userProvider.loadCurrentUser();
   }
 
   @override

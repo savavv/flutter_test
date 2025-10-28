@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 import '../providers/user_provider.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/custom_app_bar.dart';
@@ -23,6 +24,46 @@ class SettingsScreen extends StatelessWidget {
           
           return ListView(
             children: [
+              // Тема настраивается во вкладке "Темы"
+              // Development mode toggle
+              Consumer<AuthProvider>(
+                builder: (context, authProvider, child) {
+                  return Card(
+                    margin: const EdgeInsets.all(16),
+                    child: SwitchListTile(
+                      title: const Text('Режим имитации'),
+                      subtitle: Text(
+                        authProvider.useOfflineMode 
+                            ? 'Приложение работает с моковыми данными и уведомлениями'
+                            : 'Приложение работает с реальным API',
+                      ),
+                      value: authProvider.useOfflineMode,
+                      onChanged: (value) {
+                        authProvider.toggleOfflineMode();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              value 
+                                  ? 'Включен режим имитации с уведомлениями'
+                                  : 'Включен режим реального API',
+                            ),
+                            backgroundColor: value ? Colors.orange : Colors.blue,
+                          ),
+                        );
+                      },
+                      secondary: Icon(
+                        authProvider.useOfflineMode 
+                            ? Icons.notifications_active 
+                            : Icons.cloud,
+                        color: authProvider.useOfflineMode 
+                            ? Colors.orange 
+                            : Colors.blue,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              
               // Profile section
               Container(
                 padding: const EdgeInsets.all(16),
@@ -31,15 +72,24 @@ class SettingsScreen extends StatelessWidget {
                     CircleAvatar(
                       radius: 40,
                       backgroundColor: Colors.grey[300],
-                      backgroundImage: currentUser?.avatarUrl != null
-                          ? NetworkImage(currentUser!.avatarUrl!)
+                      backgroundImage: (currentUser?.avatarUrl != null &&
+                              (currentUser!.avatarUrl!.startsWith('http://') ||
+                               currentUser.avatarUrl!.startsWith('https://')))
+                          ? NetworkImage(currentUser.avatarUrl!)
                           : null,
-                      child: currentUser?.avatarUrl == null
-                          ? const Icon(
-                              Icons.person,
-                              size: 40,
-                              color: Colors.white,
-                            )
+                      child: (currentUser?.avatarUrl == null ||
+                              !(currentUser!.avatarUrl!.startsWith('http://') ||
+                                currentUser.avatarUrl!.startsWith('https://')))
+                          ? (currentUser?.avatarUrl != null && currentUser!.avatarUrl!.isNotEmpty)
+                              ? Text(
+                                  currentUser.avatarUrl!,
+                                  style: const TextStyle(fontSize: 32),
+                                )
+                              : const Icon(
+                                  Icons.person,
+                                  size: 40,
+                                  color: Colors.white,
+                                )
                           : null,
                     ),
                     const SizedBox(height: 16),

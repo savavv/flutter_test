@@ -36,7 +36,7 @@ class AboutScreen extends StatelessWidget {
           
           _buildInfoTile(
             title: 'Разработчик',
-            subtitle: 'Telegram Clone Team',
+            subtitle: 'Kasilov Savelii',
             icon: Icons.person,
           ),
           const SizedBox(height: 8),
@@ -179,7 +179,7 @@ class AboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           const Text(
-            'Telegram Clone',
+            'KS54 Messanger',
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.bold,
@@ -209,6 +209,14 @@ class AboutScreen extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
+          ),
+          Text(
+            'Данный проект написан как курсовая работа. Создатель: Kasilov Savelii.',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+            textAlign: TextAlign.center,
           ),
         ],
       ),

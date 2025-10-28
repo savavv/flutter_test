@@ -383,7 +383,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           lastSeen: currentUser.lastSeen,
         );
 
-        userProvider.updateCurrentUser(updatedUser);
+        await userProvider.updateCurrentUser(
+          name: '${_firstNameController.text} ${_lastNameController.text}',
+          username: _usernameController.text,
+          avatarUrl: _selectedAvatar,
+        );
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
