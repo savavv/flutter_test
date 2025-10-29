@@ -9,6 +9,8 @@ from app.models.user import User
 from app.models.chat import Chat, ChatParticipant
 from app.models.message import Message, MessageType
 from app.schemas.message import MessageCreate, MessageUpdate, MessageResponse
+from app.core.websocket import manager
+import json
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -100,6 +102,29 @@ async def send_message(
     # Update chat's last activity
     chat.updated_at = datetime.utcnow()
     db.commit()
+    
+    # Notify chat participants via WebSocket
+    try:
+        payload = json.dumps({
+            "type": "message",
+            "data": {
+                "id": message.id,
+                "chat_id": message.chat_id,
+                "sender_id": message.sender_id,
+                "content": message.content,
+                "message_type": message.message_type.value if hasattr(message.message_type, "value") else str(message.message_type),
+                "created_at": message.created_at.isoformat(),
+            }
+        })
+        participants = db.query(ChatParticipant).filter(
+            ChatParticipant.chat_id == message.chat_id,
+            ChatParticipant.is_active == True
+        ).all()
+        for p in participants:
+            await manager.send_personal_message(payload, p.user_id)
+    except Exception:
+        # Don't break the request if WS delivery fails
+        pass
     
     return message
 

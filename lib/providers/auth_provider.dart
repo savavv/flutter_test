@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
+import '../services/e2ee_service.dart';
 
 class AuthProvider with ChangeNotifier {
   bool _isAuthenticated = false;
@@ -14,6 +15,7 @@ class AuthProvider with ChangeNotifier {
 
   bool get isAuthenticated => _isAuthenticated;
   String? get currentPhoneNumber => _currentPhoneNumber;
+  String? get verificationCode => _verificationCode;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String? get accessToken => _accessToken;
@@ -62,27 +64,30 @@ class AuthProvider with ChangeNotifier {
     clearError();
 
     try {
-      // ВАЛИДАЦИЯ НОМЕРА ТЕЛЕФОНА
       if (phoneNumber.isEmpty) {
         setError('Введите номер телефона');
         setLoading(false);
         return false;
       }
-
-      // Проверка длины номера телефона
       if (phoneNumber.length < 10 || phoneNumber.length > 20) {
         setError('Номер телефона должен содержать от 10 до 20 символов');
         setLoading(false);
         return false;
       }
 
-      // Работаем только через API
       final response = await apiService.sendSmsCode(phoneNumber);
       
       if (response['success'] == true) {
         _currentPhoneNumber = phoneNumber;
-        // Сохраняем код для проверки (приходит с бэкенда)
         _verificationCode = response['code']?.toString();
+
+        // Симулируем пуш-уведомление с кодом
+        if (_verificationCode != null) {
+          await notificationService.showSmsCodeNotification(
+            phoneNumber: phoneNumber,
+            code: _verificationCode!,
+          );
+        }
         
         if (kDebugMode) {
           print('SMS код отправлен на $phoneNumber. Код: $_verificationCode');
@@ -104,7 +109,6 @@ class AuthProvider with ChangeNotifier {
 
   Future<bool> verifySmsCode(String code) async {
     if (_isAuthenticated) {
-      // Уже авторизованы, повторная проверка не требуется
       return true;
     }
 
@@ -114,7 +118,6 @@ class AuthProvider with ChangeNotifier {
     }
 
     if (_isLoading) {
-      // Идет предыдущий запрос, не дублируем
       return false;
     }
 
@@ -122,16 +125,21 @@ class AuthProvider with ChangeNotifier {
     clearError();
 
     try {
-      // Работаем только через API
       final response = await apiService.verifySmsCode(_currentPhoneNumber!, code);
 
-      // Бэкенд может не возвращать поле success, но возвращает токены при успехе
       final hasTokens = response['access_token'] != null && response['refresh_token'] != null;
       final isSuccess = response['success'] == true || hasTokens;
 
       if (isSuccess) {
         if (hasTokens) {
           _setTokens(response['access_token'], response['refresh_token']);
+          try {
+            await e2eeService.publishPublicKey();
+          } catch (e) {
+            if (kDebugMode) {
+              print('Failed to publish public key: $e');
+            }
+          }
         }
         setLoading(false);
         if (kDebugMode) {
@@ -160,7 +168,6 @@ class AuthProvider with ChangeNotifier {
       return false;
     }
 
-    // ВАЛИДАЦИЯ ДАННЫХ
     if (name.isEmpty) {
       setError('Введите имя');
       return false;
@@ -174,7 +181,6 @@ class AuthProvider with ChangeNotifier {
     clearError();
 
     try {
-      // Обновляем профиль через API
       final userData = {
         'first_name': name.split(' ').first,
         'last_name': name.split(' ').length > 1 ? name.split(' ').last : null,
@@ -186,11 +192,9 @@ class AuthProvider with ChangeNotifier {
       
       if (response['success'] == true || response['id'] != null) {
         setLoading(false);
-        
         if (kDebugMode) {
           print('✅ Профиль обновлен: $name');
         }
-        
         return true;
       } else {
         setError(response['message'] ?? response['detail'] ?? 'Ошибка обновления профиля');
@@ -210,28 +214,29 @@ class AuthProvider with ChangeNotifier {
 
     try {
       if (_useOfflineMode) {
-        // Режим имитации - просто авторизуем
         await Future.delayed(const Duration(seconds: 1));
-        
         _accessToken = 'offline_token_${DateTime.now().millisecondsSinceEpoch}';
         _refreshToken = 'offline_refresh_${DateTime.now().millisecondsSinceEpoch}';
         _currentPhoneNumber = phoneNumber;
         _isAuthenticated = true;
-        
         setLoading(false);
-        
         if (kDebugMode) {
           print('🔐 Пользователь авторизован');
         }
-        
         return true;
       } else {
-        // Режим реального API
         final response = await apiService.login(phoneNumber, password);
         
         if (response['success'] == true) {
           if (response['access_token'] != null && response['refresh_token'] != null) {
             _setTokens(response['access_token'], response['refresh_token']);
+            try {
+              await e2eeService.publishPublicKey();
+            } catch (e) {
+              if (kDebugMode) {
+                print('Failed to publish public key: $e');
+              }
+            }
           }
           
           _currentPhoneNumber = phoneNumber;
@@ -262,11 +267,9 @@ class AuthProvider with ChangeNotifier {
 
     try {
       if (_useOfflineMode) {
-        // В режиме имитации просто обновляем токен
         _accessToken = 'offline_token_${DateTime.now().millisecondsSinceEpoch}';
         return true;
       } else {
-        // Режим реального API
         final response = await apiService.refreshToken(_refreshToken!);
         
         if (response['success'] == true && response['access_token'] != null) {
@@ -286,13 +289,11 @@ class AuthProvider with ChangeNotifier {
       }
     }
     
-    // Если не удалось обновить токен, выходим из системы
     logout();
     return false;
   }
 
   String _generateVerificationCode() {
-    // Генерируем 4-значный код
     return (1000 + (DateTime.now().millisecondsSinceEpoch % 9000)).toString();
   }
 

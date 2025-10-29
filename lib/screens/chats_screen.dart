@@ -19,116 +19,33 @@ class ChatsScreen extends StatefulWidget {
   State<ChatsScreen> createState() => _ChatsScreenState();
 }
 
-class _ChatsScreenState extends State<ChatsScreen> {
+class _ChatsScreenState extends State<ChatsScreen> with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
 
   @override
   void initState() {
     super.initState();
-    _loadMockData();
-  }
-
-  void _loadMockData() {
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    final userProvider = Provider.of<UserProvider>(context, listen: false);
-
-    // Mock users
-    final mockUsers = [
-      User(
-        id: '1',
-        name: 'Александр Иванов',
-        username: 'alex_ivanov',
-        avatarUrl: 'https://via.placeholder.com/150',
-        isOnline: true,
-        lastSeen: DateTime.now().subtract(const Duration(minutes: 5)),
-        phoneNumber: '+7 (999) 123-45-67',
-      ),
-      User(
-        id: '2',
-        name: 'Мария Петрова',
-        username: 'maria_petrova',
-        avatarUrl: 'https://via.placeholder.com/150',
-        isOnline: false,
-        lastSeen: DateTime.now().subtract(const Duration(hours: 2)),
-        phoneNumber: '+7 (999) 234-56-78',
-      ),
-      User(
-        id: '3',
-        name: 'Дмитрий Сидоров',
-        username: 'dmitry_sidorov',
-        avatarUrl: 'https://via.placeholder.com/150',
-        isOnline: true,
-        lastSeen: DateTime.now().subtract(const Duration(minutes: 30)),
-        phoneNumber: '+7 (999) 345-67-89',
-      ),
-    ];
-
-    userProvider.setContacts(mockUsers);
-
-    // Mock chats
-    final mockChats = [
-      Chat(
-        id: '1',
-        name: 'Александр Иванов',
-        avatarUrl: 'https://via.placeholder.com/150',
-        type: ChatType.private,
-        participants: ['current_user', '1'],
-        lastMessage: Message(
-          id: '1',
-          chatId: '1',
-          senderId: '1',
-          content: 'Привет! Как дела?',
-          type: MessageType.text,
-          timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
-        ),
-        lastActivity: DateTime.now().subtract(const Duration(minutes: 5)),
-        unreadCount: 2,
-      ),
-      Chat(
-        id: '2',
-        name: 'Мария Петрова',
-        avatarUrl: 'https://via.placeholder.com/150',
-        type: ChatType.private,
-        participants: ['current_user', '2'],
-        lastMessage: Message(
-          id: '2',
-          chatId: '2',
-          senderId: 'current_user',
-          content: 'Спасибо за помощь!',
-          type: MessageType.text,
-          timestamp: DateTime.now().subtract(const Duration(hours: 1)),
-        ),
-        lastActivity: DateTime.now().subtract(const Duration(hours: 1)),
-        unreadCount: 0,
-        isPinned: true,
-      ),
-      Chat(
-        id: '3',
-        name: 'Дмитрий Сидоров',
-        avatarUrl: 'https://via.placeholder.com/150',
-        type: ChatType.private,
-        participants: ['current_user', '3'],
-        lastMessage: Message(
-          id: '3',
-          chatId: '3',
-          senderId: '3',
-          content: 'Отлично! Встречаемся в 18:00',
-          type: MessageType.text,
-          timestamp: DateTime.now().subtract(const Duration(hours: 2)),
-        ),
-        lastActivity: DateTime.now().subtract(const Duration(hours: 2)),
-        unreadCount: 1,
-      ),
-    ];
-
-    chatProvider.setChats(mockChats);
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<UserProvider>().fetchContacts();
+      context.read<ChatProvider>().fetchChats(context);
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refresh chats when returning to app
+      context.read<ChatProvider>().fetchChats(context);
+    }
   }
 
   @override
@@ -166,13 +83,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   });
                   break;
                 case 'new_group':
-                  // TODO: Implement new group
                   break;
                 case 'new_channel':
-                  // TODO: Implement new channel
                   break;
                 case 'contacts':
-                  // TODO: Implement contacts
                   break;
               }
             },

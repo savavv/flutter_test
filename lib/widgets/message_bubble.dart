@@ -16,6 +16,11 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    DateTime _toMsk(DateTime t) {
+      // Convert to MSK (UTC+3). If source not UTC, assume local represents UTC time
+      final utc = t.isUtc ? t : t.toUtc();
+      return utc.add(const Duration(hours: 3));
+    }
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
@@ -60,7 +65,7 @@ class MessageBubble extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        DateFormat('HH:mm').format(message.timestamp),
+                        DateFormat('HH:mm').format(_toMsk(message.timestamp)),
                         style: TextStyle(
                           color: isMe 
                               ? Colors.white.withOpacity(0.7)

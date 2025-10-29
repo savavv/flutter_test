@@ -7,10 +7,10 @@ import secrets
 class Settings(BaseSettings):
     # Database Configuration
     database_type: str = "postgresql"
-    database_url: str = "postgresql://username:password@localhost:5432/telegram_clone"
-    database_url_test: str = "postgresql://username:password@localhost:5432/telegram_clone_test"
-    sqlite_database_path: str = "telegram_clone.db"
-    sqlite_test_database_path: str = "telegram_clone_test.db"
+    database_url: str = "postgresql://username:password@localhost:5432/ks54_messanger"
+    database_url_test: str = "postgresql://username:password@localhost:5432/ks54_messanger_test"
+    sqlite_database_path: str = "ks54_messanger.db"
+    sqlite_test_database_path: str = "ks54_messanger_test.db"
     
     # Redis
     redis_url: str = "redis://localhost:6379"

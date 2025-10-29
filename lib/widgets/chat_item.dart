@@ -111,17 +111,19 @@ class ChatItem extends StatelessWidget {
   }
 
   String _formatTime(DateTime time) {
+    final msk = (time.isUtc ? time : time.toUtc()).add(const Duration(hours: 3));
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final mskNow = (now.isUtc ? now : now.toUtc()).add(const Duration(hours: 3));
+    final today = DateTime(mskNow.year, mskNow.month, mskNow.day);
     final yesterday = today.subtract(const Duration(days: 1));
-    final messageDate = DateTime(time.year, time.month, time.day);
+    final messageDate = DateTime(msk.year, msk.month, msk.day);
 
     if (messageDate == today) {
-      return DateFormat('HH:mm').format(time);
+      return DateFormat('HH:mm').format(msk);
     } else if (messageDate == yesterday) {
       return 'Вчера';
     } else {
-      return DateFormat('dd.MM').format(time);
+      return DateFormat('dd.MM').format(msk);
     }
   }
 }

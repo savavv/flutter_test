@@ -57,7 +57,7 @@ class ChatInput extends StatelessWidget {
                     IconButton(
                       icon: const Icon(Icons.emoji_emotions_outlined),
                       onPressed: () {
-                        // TODO: Show emoji picker
+                        _showEmojiPicker(context);
                       },
                     ),
                   ],
@@ -144,6 +144,57 @@ class ChatInput extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  void _showEmojiPicker(BuildContext context) {
+    final emojis = [
+      '😀','😁','😂','🤣','😊','😍','😘','😎','🤩','🤔','🤗','🤝','👍','👎','👏','🙏','🔥','💯','✨','🎉','🥳','❤️','💙','💚','💛','💜','🖤','🤍','🤎','😇','😅','😌','🙃','😉','😏','😴','😪','🤤','😷','🤒','🤕','🤧','🤠','😈','👻','💀','👀','🙈','🙉','🙊','🐶','🐱','🐼','🐨','🐧','🐸'
+    ];
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: SizedBox(
+            height: 260,
+            child: GridView.builder(
+              padding: const EdgeInsets.all(12),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 8,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+              ),
+              itemCount: emojis.length,
+              itemBuilder: (context, index) {
+                final emoji = emojis[index];
+                return InkWell(
+                  onTap: () {
+                    _insertEmoji(emoji);
+                  },
+                  child: Center(
+                    child: Text(
+                      emoji,
+                      style: const TextStyle(fontSize: 24),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _insertEmoji(String emoji) {
+    final text = controller.text;
+    final selection = controller.selection;
+    final start = selection.start >= 0 ? selection.start : text.length;
+    final end = selection.end >= 0 ? selection.end : text.length;
+    final newText = text.replaceRange(start, end, emoji);
+    controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: start + emoji.length),
     );
   }
 

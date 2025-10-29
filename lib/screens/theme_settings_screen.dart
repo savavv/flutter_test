@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../widgets/custom_app_bar.dart';
+import '../providers/theme_provider.dart';
 
 class ThemeSettingsScreen extends StatefulWidget {
   const ThemeSettingsScreen({super.key});
@@ -47,6 +49,25 @@ class _ThemeSettingsScreenState extends State<ThemeSettingsScreen> {
   ];
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final mode = context.read<ThemeProvider>().themeMode;
+    setState(() {
+      switch (mode) {
+        case ThemeMode.dark:
+          _selectedTheme = 'Темная';
+          break;
+        case ThemeMode.light:
+          _selectedTheme = 'Светлая';
+          break;
+        case ThemeMode.system:
+        default:
+          _selectedTheme = 'Системная';
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: const CustomAppBar(
@@ -57,21 +78,14 @@ class _ThemeSettingsScreenState extends State<ThemeSettingsScreen> {
         children: [
           _buildSectionTitle('Основная тема'),
           const SizedBox(height: 16),
-          
           ..._themes.map((theme) => _buildThemeOption(theme)).toList(),
-          
           const SizedBox(height: 32),
-          
           _buildSectionTitle('Цвет акцента'),
           const SizedBox(height: 16),
-          
           _buildAccentColorGrid(),
-          
           const SizedBox(height: 32),
-          
           _buildSectionTitle('Дополнительные настройки'),
           const SizedBox(height: 16),
-          
           _buildSwitchTile(
             title: 'Material 3',
             subtitle: 'Использовать новый дизайн Material 3',
@@ -83,7 +97,6 @@ class _ThemeSettingsScreenState extends State<ThemeSettingsScreen> {
             },
           ),
           const SizedBox(height: 8),
-          
           _buildSwitchTile(
             title: 'Динамические цвета',
             subtitle: 'Автоматически адаптировать цвета под обои',
@@ -95,12 +108,9 @@ class _ThemeSettingsScreenState extends State<ThemeSettingsScreen> {
             },
           ),
           const SizedBox(height: 32),
-          
           _buildSectionTitle('Предварительный просмотр'),
           const SizedBox(height: 16),
-          
           _buildThemePreview(),
-          
           const SizedBox(height: 32),
         ],
       ),
@@ -120,7 +130,7 @@ class _ThemeSettingsScreenState extends State<ThemeSettingsScreen> {
 
   Widget _buildThemeOption(ThemeOption theme) {
     final isSelected = _selectedTheme == theme.name;
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -157,6 +167,14 @@ class _ThemeSettingsScreenState extends State<ThemeSettingsScreen> {
           setState(() {
             _selectedTheme = theme.name;
           });
+          final provider = context.read<ThemeProvider>();
+          if (theme.name == 'Светлая') {
+            provider.setTheme(ThemeMode.light);
+          } else if (theme.name == 'Темная') {
+            provider.setTheme(ThemeMode.dark);
+          } else {
+            provider.setTheme(ThemeMode.system);
+          }
         },
       ),
     );
@@ -176,7 +194,7 @@ class _ThemeSettingsScreenState extends State<ThemeSettingsScreen> {
       itemBuilder: (context, index) {
         final colorOption = _accentColors[index];
         final isSelected = _selectedAccentColor == colorOption.name;
-        
+
         return GestureDetector(
           onTap: () {
             setState(() {

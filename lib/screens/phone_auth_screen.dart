@@ -35,7 +35,6 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
   }
 
   String _formatPhoneNumber(String phone) {
-    // Форматируем номер телефона для России
     if (_selectedCountryCode == '+7') {
       if (phone.length >= 10) {
         return '${phone.substring(0, 3)} ${phone.substring(3, 6)} ${phone.substring(6, 8)} ${phone.substring(8, 10)}';
@@ -102,6 +101,17 @@ class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
     final success = await authProvider.sendSmsCode(phoneNumber);
     
     if (success && mounted) {
+      // Локальный пуш (SnackBar) с кодом для имитации уведомления на фронте
+      final code = authProvider.verificationCode;
+      if (code != null && code.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Код подтверждения: $code'),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => const SmsVerificationScreen(),

@@ -18,6 +18,7 @@ class User(Base):
     last_seen = Column(DateTime, default=func.now())
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+    public_key = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 

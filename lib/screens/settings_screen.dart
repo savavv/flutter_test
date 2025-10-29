@@ -24,46 +24,6 @@ class SettingsScreen extends StatelessWidget {
           
           return ListView(
             children: [
-              // Тема настраивается во вкладке "Темы"
-              // Development mode toggle
-              Consumer<AuthProvider>(
-                builder: (context, authProvider, child) {
-                  return Card(
-                    margin: const EdgeInsets.all(16),
-                    child: SwitchListTile(
-                      title: const Text('Режим имитации'),
-                      subtitle: Text(
-                        authProvider.useOfflineMode 
-                            ? 'Приложение работает с моковыми данными и уведомлениями'
-                            : 'Приложение работает с реальным API',
-                      ),
-                      value: authProvider.useOfflineMode,
-                      onChanged: (value) {
-                        authProvider.toggleOfflineMode();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              value 
-                                  ? 'Включен режим имитации с уведомлениями'
-                                  : 'Включен режим реального API',
-                            ),
-                            backgroundColor: value ? Colors.orange : Colors.blue,
-                          ),
-                        );
-                      },
-                      secondary: Icon(
-                        authProvider.useOfflineMode 
-                            ? Icons.notifications_active 
-                            : Icons.cloud,
-                        color: authProvider.useOfflineMode 
-                            ? Colors.orange 
-                            : Colors.blue,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              
               // Profile section
               Container(
                 padding: const EdgeInsets.all(16),

@@ -7,7 +7,11 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
+import '../services/e2ee_service.dart';
 import 'auth_provider.dart';
+import 'user_provider.dart';
+import 'dart:convert';
 
 class ChatProvider with ChangeNotifier {
   List<Chat> _chats = [];
@@ -37,6 +41,132 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
+  Future<void> _enrichChatWithOtherUser(BuildContext context, Chat chat) async {
+    if (chat.type != ChatType.private) return;
+    if (chat.name.isNotEmpty && chat.avatarUrl != null) return;
+    final userProvider = Provider.of<UserProvider>(context, listen: false);
+    final meId = userProvider.currentUser?.id;
+    final otherId = chat.participants.firstWhere((id) => id != meId, orElse: () => chat.participants.isNotEmpty ? chat.participants.first : '');
+    if (otherId.isEmpty) return;
+
+    // Try from contacts cache
+    final fromContacts = userProvider.contacts.firstWhere(
+      (u) => u.id == otherId,
+      orElse: () => User(id: '', name: '', username: '', lastSeen: DateTime.now()),
+    );
+    String? name;
+    String? avatarUrl;
+    if (fromContacts.id.isNotEmpty) {
+      name = fromContacts.name;
+      avatarUrl = fromContacts.avatarUrl;
+    } else {
+      // Fetch from API by id
+      try {
+        final u = await apiService.getUserById(otherId);
+        name = '${u['first_name'] ?? ''} ${u['last_name'] ?? ''}'.trim();
+        avatarUrl = apiService.resolveUrl(u['avatar_url']);
+      } catch (_) {}
+    }
+
+    if ((name != null && name.isNotEmpty) || avatarUrl != null) {
+      final updated = chat.copyWith(
+        name: (chat.name.isEmpty && (name != null && name.isNotEmpty)) ? name : chat.name,
+        avatarUrl: avatarUrl ?? chat.avatarUrl,
+      );
+      updateChat(updated);
+    }
+  }
+
+  Future<void> fetchChats(BuildContext context) async {
+    try {
+      final list = await apiService.getChats();
+      final mapped = list.map<Chat>((c) {
+        final typeStr = (c['chat_type'] ?? 'private').toString();
+        final type = typeStr == 'group' ? ChatType.group : typeStr == 'channel' ? ChatType.channel : ChatType.private;
+        final participants = (c['participants'] as List<dynamic>? ?? [])
+            .map((p) => (p['user_id'] ?? '').toString())
+            .toList();
+        return Chat(
+          id: c['id'].toString(),
+          name: (c['name'] ?? '').toString(),
+          avatarUrl: apiService.resolveUrl(c['avatar_url']),
+          type: type,
+          participants: participants,
+          lastActivity: DateTime.tryParse((c['updated_at'] ?? '').toString()) ?? DateTime.now(),
+        );
+      }).toList();
+      setChats(mapped);
+      // Enrich private chats with other user data
+      for (final chat in _chats.toList()) {
+        await _enrichChatWithOtherUser(context, chat);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to fetch chats: $e');
+      }
+    }
+  }
+
+  Future<void> _handleIncomingMessage(BuildContext context, Map<String, dynamic> msg) async {
+    final chatId = (msg['chat_id'] ?? '').toString();
+    String content = (msg['content'] ?? '').toString();
+    final senderId = (msg['sender_id'] ?? '').toString();
+    final createdAt = DateTime.tryParse((msg['created_at'] ?? '').toString()) ?? DateTime.now();
+    // Ignore echo of our own messages (мы уже добавили их после успешного POST)
+    final meId = Provider.of<UserProvider>(context, listen: false).currentUser?.id;
+    if (meId != null && senderId == meId) {
+      return;
+    }
+    final message = Message(
+      id: (msg['id'] ?? '').toString(),
+      chatId: chatId,
+      senderId: senderId,
+      content: content,
+      type: MessageType.text,
+      timestamp: createdAt,
+    );
+    // Dedupe: do not add if message with same id already present
+    final existing = _messages[chatId]?.any((m) => m.id == message.id) ?? false;
+    if (existing) {
+      return;
+    }
+    if (getChat(chatId) == null) {
+      await fetchChats(context);
+      try {
+        final list = await apiService.getMessages(chatId, limit: 50, offset: 0);
+        final messages = list.reversed.map<Message>((m) => Message(
+          id: m['id'].toString(),
+          chatId: chatId,
+          senderId: m['sender_id'].toString(),
+          content: (m['content'] ?? '').toString(),
+          type: MessageType.text,
+          timestamp: DateTime.tryParse((m['created_at'] ?? '').toString()) ?? DateTime.now(),
+        )).toList();
+        setMessages(chatId, messages);
+      } catch (_) {
+        // try to decrypt if needed
+        try {
+          content = await e2eeService.decryptFromUser(senderUserId: senderId, ciphertext: content);
+        } catch (_) {}
+        addMessage(message.copyWith(content: content));
+      }
+    } else {
+      // try to decrypt if needed
+      try {
+        content = await e2eeService.decryptFromUser(senderUserId: senderId, ciphertext: content);
+      } catch (_) {}
+      addMessage(message.copyWith(content: content));
+    }
+    // Unread counter if chat not active
+    if (_selectedChatId != chatId) {
+      final chat = getChat(chatId);
+      if (chat != null) {
+        final updated = chat.copyWith(unreadCount: chat.unreadCount + 1);
+        updateChat(updated);
+      }
+    }
+  }
+
   Future<void> connectGlobalWebSocket(BuildContext context) async {
     try {
       final auth = Provider.of<AuthProvider>(context, listen: false);
@@ -48,11 +178,23 @@ class ChatProvider with ChangeNotifier {
       }
       _channel?.sink.close(ws_status.goingAway);
       _channel = WebSocketChannel.connect(Uri.parse(url));
-      _channel!.stream.listen((event) {
+      _channel!.stream.listen((event) async {
         if (kDebugMode) {
           print('WS message: $event');
         }
-        // TODO: parse and route events into providers/state as needed
+        try {
+          final data = json.decode(event);
+          final type = data['type'];
+          if (type == 'message') {
+            final msg = (data['data'] ?? {}) as Map<String, dynamic>;
+            await notificationService.showMessageNotification(
+              senderName: 'Сообщение',
+              message: (msg['content'] ?? '').toString(),
+              chatId: (msg['chat_id'] ?? '').toString(),
+            );
+            await _handleIncomingMessage(context, msg);
+          }
+        } catch (_) {}
       }, onError: (error) {
         if (kDebugMode) {
           print('WS error: $error');
@@ -101,29 +243,25 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Создание локального чата с контактом (если нет)
-  Chat ensurePrivateChatWith(String contactId, String contactName, {String? contactAvatar}) {
-    final existing = _chats.firstWhere(
-      (c) => c.type == ChatType.private && c.participants.contains(contactId),
-      orElse: () => Chat(
-        id: '',
-        name: '',
-        type: ChatType.private,
-        participants: const [],
-        lastActivity: DateTime.now(),
-      ),
-    );
-    if (existing.id.isNotEmpty) return existing;
-    final newChat = Chat(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+  Future<Chat> createOrGetPrivateChat(String contactId, String contactName, {String? contactAvatar}) async {
+    final payload = {
+      'chat_type': 'private',
+      'participant_ids': [int.tryParse(contactId) ?? contactId],
+    };
+    final response = await apiService.createChat(payload);
+    final chatId = response['id'].toString();
+    final avatar = apiService.resolveUrl(response['avatar_url']) ?? contactAvatar;
+    final chat = Chat(
+      id: chatId,
       name: contactName,
-      avatarUrl: contactAvatar,
+      avatarUrl: avatar,
       type: ChatType.private,
-      participants: ['current_user', contactId],
-      lastActivity: DateTime.now(),
+      participants: [contactId],
+      lastActivity: DateTime.tryParse(response['updated_at'] ?? '') ?? DateTime.now(),
     );
-    addChat(newChat);
-    return newChat;
+    _chats.removeWhere((c) => c.type == ChatType.private && c.participants.contains(contactId) && int.tryParse(c.id) == null);
+    addChat(chat);
+    return chat;
   }
 
   void selectChat(String? chatId) {
@@ -142,8 +280,6 @@ class ChatProvider with ChangeNotifier {
       _messages[chatId] = [];
     }
     _messages[chatId]!.add(message);
-    
-    // Update chat's last message and activity
     final chat = getChat(chatId);
     if (chat != null) {
       final updatedChat = chat.copyWith(
@@ -152,7 +288,6 @@ class ChatProvider with ChangeNotifier {
       );
       updateChat(updatedChat);
     }
-    
     notifyListeners();
   }
 
@@ -164,14 +299,11 @@ class ChatProvider with ChangeNotifier {
           messages[i] = messages[i].copyWith(isRead: true);
         }
       }
-      
-      // Update chat unread count
       final chat = getChat(chatId);
       if (chat != null) {
         final updatedChat = chat.copyWith(unreadCount: 0);
         updateChat(updatedChat);
       }
-      
       notifyListeners();
     }
   }
@@ -205,10 +337,8 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Search functionality
   List<Chat> searchChats(String query) {
     if (query.isEmpty) return [];
-    
     return _chats.where((chat) =>
         chat.name.toLowerCase().contains(query.toLowerCase()) ||
         (chat.lastMessage?.content.toLowerCase().contains(query.toLowerCase()) ?? false)

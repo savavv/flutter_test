@@ -6,7 +6,8 @@ from datetime import datetime
 from app.core.database import get_db
 from app.api.dependencies import get_current_active_user
 from app.models.user import User
-from app.schemas.user import UserResponse, UserUpdate, UserProfile
+from app.models.contact import Contact
+from app.schemas.user import UserResponse, UserUpdate, UserProfile, PublicKeyUpdate
 from app.schemas.auth import Token
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -51,6 +52,32 @@ async def update_current_user_profile(
     return current_user
 
 
+@router.put("/me/public-key")
+async def update_public_key(
+    payload: PublicKeyUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Set or update current user's public key used for E2EE."""
+    current_user.public_key = payload.public_key
+    current_user.updated_at = datetime.utcnow()
+    db.commit()
+    return {"message": "Public key updated"}
+
+
+@router.get("/{user_id}/public-key")
+async def get_user_public_key(
+    user_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get another user's public key for E2EE."""
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"user_id": user.id, "public_key": user.public_key}
+
+
 @router.get("/search", response_model=List[UserProfile])
 async def search_users(
     query: str = Query(..., min_length=1, description="Search query"),
@@ -82,15 +109,53 @@ async def get_user_contacts(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Get user's contacts (users they have chatted with)"""
-    # This would require a more complex query to find users who have chatted with current user
-    # For now, return all active users except current user
-    contacts = db.query(User).filter(
-        User.id != current_user.id,
-        User.is_active == True
-    ).limit(50).all()
-    
-    return contacts
+    """Get user's contacts"""
+    contact_links = db.query(Contact).filter(Contact.user_id == current_user.id).all()
+    contact_ids = [c.contact_user_id for c in contact_links]
+    if not contact_ids:
+        return []
+    users = db.query(User).filter(User.id.in_(contact_ids), User.is_active == True).all()
+    return users
+
+
+@router.post("/contacts/{contact_user_id}")
+async def add_contact(
+    contact_user_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Add a user to current user's contacts."""
+    if contact_user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot add yourself")
+    target = db.query(User).filter(User.id == contact_user_id, User.is_active == True).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    existing = db.query(Contact).filter(
+        Contact.user_id == current_user.id,
+        Contact.contact_user_id == contact_user_id
+    ).first()
+    if existing:
+        return {"message": "Already in contacts"}
+    db.add(Contact(user_id=current_user.id, contact_user_id=contact_user_id))
+    db.commit()
+    return {"message": "Contact added"}
+
+
+@router.delete("/contacts/{contact_user_id}")
+async def remove_contact(
+    contact_user_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Remove a user from current user's contacts."""
+    deleted = db.query(Contact).filter(
+        Contact.user_id == current_user.id,
+        Contact.contact_user_id == contact_user_id
+    ).delete()
+    db.commit()
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return {"message": "Contact removed"}
 
 
 @router.get("/{user_id}", response_model=UserProfile)

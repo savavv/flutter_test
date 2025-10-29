@@ -11,6 +11,8 @@ import '../widgets/custom_app_bar.dart';
 import '../widgets/chat_input.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import '../services/api_service.dart';
+import '../services/e2ee_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -42,69 +44,42 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  void _loadMessages() {
+  Future<void> _loadMessages() async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    
-    // Mock messages for demonstration
-    final mockMessages = [
-      Message(
-        id: const Uuid().v4(),
-        chatId: widget.chatId,
-        senderId: widget.chatId == '1' ? '1' : widget.chatId == '2' ? '2' : '3',
-        content: 'Привет! Как дела?',
-        type: MessageType.text,
-        timestamp: DateTime.now().subtract(const Duration(minutes: 30)),
-        isRead: true,
-      ),
-      Message(
-        id: const Uuid().v4(),
-        chatId: widget.chatId,
-        senderId: 'current_user',
-        content: 'Привет! Все хорошо, спасибо! А у тебя как?',
-        type: MessageType.text,
-        timestamp: DateTime.now().subtract(const Duration(minutes: 25)),
-        isRead: true,
-      ),
-      Message(
-        id: const Uuid().v4(),
-        chatId: widget.chatId,
-        senderId: widget.chatId == '1' ? '1' : widget.chatId == '2' ? '2' : '3',
-        content: 'Тоже все отлично! Работаю над новым проектом.',
-        type: MessageType.text,
-        timestamp: DateTime.now().subtract(const Duration(minutes: 20)),
-        isRead: true,
-      ),
-      Message(
-        id: const Uuid().v4(),
-        chatId: widget.chatId,
-        senderId: 'current_user',
-        content: 'Здорово! Расскажи подробнее, если не секрет.',
-        type: MessageType.text,
-        timestamp: DateTime.now().subtract(const Duration(minutes: 15)),
-        isRead: true,
-      ),
-      Message(
-        id: const Uuid().v4(),
-        chatId: widget.chatId,
-        senderId: widget.chatId == '1' ? '1' : widget.chatId == '2' ? '2' : '3',
-        content: 'Конечно! Это мобильное приложение на Flutter. Очень интересный проект!',
-        type: MessageType.text,
-        timestamp: DateTime.now().subtract(const Duration(minutes: 10)),
-        isRead: true,
-      ),
-      Message(
-        id: const Uuid().v4(),
-        chatId: widget.chatId,
-        senderId: 'current_user',
-        content: 'Круто! Flutter - отличная платформа. Удачи в разработке!',
-        type: MessageType.text,
-        timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
-        isRead: false,
-      ),
-    ];
-
-    chatProvider.setMessages(widget.chatId, mockMessages);
-    chatProvider.markMessagesAsRead(widget.chatId);
+    try {
+      final list = await apiService.getMessages(widget.chatId, limit: 50, offset: 0);
+      final messages = list.reversed.map<Message>((m) {
+        final typeStr = (m['message_type'] ?? 'text').toString();
+        final msgType = MessageType.text; // map other types as needed
+        return Message(
+          id: m['id'].toString(),
+          chatId: widget.chatId,
+          senderId: m['sender_id'].toString(),
+          content: (m['content'] ?? '').toString(),
+          type: msgType,
+          timestamp: DateTime.tryParse((m['created_at'] ?? '').toString()) ?? DateTime.now(),
+          isRead: true,
+          isEdited: (m['is_edited'] ?? false) == true,
+          replyToMessageId: m['reply_to_id']?.toString(),
+        );
+      }).toList();
+      // Try decrypt messages that are encrypted
+      final myId = Provider.of<UserProvider>(context, listen: false).currentUser?.id;
+      final otherId = chatProvider.getChat(widget.chatId)?.participants.firstWhere((id) => id != myId, orElse: () => '');
+      final decrypted = await Future.wait(messages.map((msg) async {
+        if (otherId != null && otherId.isNotEmpty) {
+          try {
+            final clear = await e2eeService.decryptFromUser(senderUserId: msg.senderId, ciphertext: msg.content);
+            return msg.copyWith(content: clear);
+          } catch (_) {}
+        }
+        return msg;
+      }));
+      chatProvider.setMessages(widget.chatId, decrypted.toList());
+      chatProvider.markMessagesAsRead(widget.chatId);
+    } catch (e) {
+      // keep empty on failure
+    }
   }
 
   void _scrollToBottom() {
@@ -117,54 +92,53 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _sendMessage() {
+  Future<void> _sendMessage() async {
     final content = _messageController.text.trim();
     if (content.isEmpty) return;
 
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    
-    final message = Message(
-      id: const Uuid().v4(),
-      chatId: widget.chatId,
-      senderId: 'current_user',
-      content: content,
-      type: MessageType.text,
-      timestamp: DateTime.now(),
-      isRead: false,
-    );
-
-    chatProvider.addMessage(message);
-    _messageController.clear();
-    
-    // Simulate typing and reply
-    setState(() {
-      _isTyping = true;
-    });
-
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        final replyMessage = Message(
-          id: const Uuid().v4(),
-          chatId: widget.chatId,
-          senderId: widget.chatId == '1' ? '1' : widget.chatId == '2' ? '2' : '3',
-          content: 'Спасибо за сообщение! Отличный день для общения.',
-          type: MessageType.text,
-          timestamp: DateTime.now(),
-          isRead: false,
-        );
-
-        chatProvider.addMessage(replyMessage);
-        setState(() {
-          _isTyping = false;
-        });
+    final me = Provider.of<UserProvider>(context, listen: false).currentUser;
+    final chat = chatProvider.getChat(widget.chatId);
+    String payloadContent = content;
+    if (chat != null && chat.type == ChatType.private) {
+      final otherId = chat.participants.firstWhere((id) => id != me?.id, orElse: () => '');
+      if (otherId.isNotEmpty) {
+        try {
+          payloadContent = await e2eeService.encryptForUser(recipientUserId: otherId, plaintext: content);
+        } catch (e) {}
       }
-    });
+    }
 
-    _scrollToBottom();
+    try {
+      final sent = await apiService.sendMessage(widget.chatId, {
+        'content': payloadContent,
+        'message_type': 'text',
+      });
+      final message = Message(
+        id: sent['id'].toString(),
+        chatId: widget.chatId,
+        senderId: sent['sender_id'].toString(),
+        content: content, // show clear text locally
+        type: MessageType.text,
+        timestamp: DateTime.tryParse((sent['created_at'] ?? '').toString()) ?? DateTime.now(),
+        isRead: false,
+        isEdited: (sent['is_edited'] ?? false) == true,
+        replyToMessageId: sent['reply_to_id']?.toString(),
+      );
+      chatProvider.addMessage(message);
+      _messageController.clear();
+      _scrollToBottom();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось отправить: $e')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final me = Provider.of<UserProvider>(context).currentUser;
+    final myId = me?.id;
     return Scaffold(
       appBar: _buildAppBar(),
       body: Column(
@@ -177,12 +151,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 return ListView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  itemCount: messages.length + (_isTyping ? 1 : 0),
+                  itemCount: messages.length,
                   itemBuilder: (context, index) {
-                    if (index == messages.length && _isTyping) {
-                      return _buildTypingIndicator();
-                    }
-                    
                     final message = messages[index];
                     final isLastMessage = index == messages.length - 1;
                     final showDate = _shouldShowDate(message, index > 0 ? messages[index - 1] : null);
@@ -192,7 +162,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         if (showDate) _buildDateSeparator(message.timestamp),
                         AnimatedMessageBubble(
                           message: message,
-                          isMe: message.senderId == 'current_user',
+                          isMe: myId != null && message.senderId == myId,
                           showAvatar: isLastMessage || 
                               (index < messages.length - 1 && 
                                messages[index + 1].senderId != message.senderId),
@@ -222,27 +192,20 @@ class _ChatScreenState extends State<ChatScreen> {
           actions: [
             IconButton(
               icon: const Icon(Icons.videocam),
-              onPressed: () {
-                // TODO: Implement video call
-              },
+              onPressed: () {},
             ),
             IconButton(
               icon: const Icon(Icons.call),
-              onPressed: () {
-                // TODO: Implement voice call
-              },
+              onPressed: () {},
             ),
             PopupMenuButton<String>(
               onSelected: (value) {
                 switch (value) {
                   case 'info':
-                    // TODO: Show chat info
                     break;
                   case 'search':
-                    // TODO: Search in chat
                     break;
                   case 'clear':
-                    // TODO: Clear chat
                     break;
                 }
               },
@@ -284,10 +247,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildDateSeparator(DateTime date) {
+    final msk = (date.isUtc ? date : date.toUtc()).add(const Duration(hours: 3));
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 16),
       child: Text(
-        DateFormat('dd MMMM yyyy').format(date),
+        DateFormat('dd MMMM yyyy').format(msk),
         style: TextStyle(
           color: Colors.grey[600],
           fontSize: 12,
@@ -297,59 +261,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildTypingIndicator() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          const CircleAvatar(
-            radius: 16,
-            backgroundColor: Colors.grey,
-            child: Icon(Icons.person, size: 16, color: Colors.white),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'печатает',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[400]!),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   bool _shouldShowDate(Message currentMessage, Message? previousMessage) {
     if (previousMessage == null) return true;
-    
-    final currentDate = DateTime(currentMessage.timestamp.year, 
-                                currentMessage.timestamp.month, 
-                                currentMessage.timestamp.day);
-    final previousDate = DateTime(previousMessage.timestamp.year, 
-                                 previousMessage.timestamp.month, 
-                                 previousMessage.timestamp.day);
+    final currentMsk = currentMessage.timestamp.toUtc().add(const Duration(hours: 3));
+    final previousMsk = previousMessage.timestamp.toUtc().add(const Duration(hours: 3));
+    final currentDate = DateTime(currentMsk.year, currentMsk.month, currentMsk.day);
+    final previousDate = DateTime(previousMsk.year, previousMsk.month, previousMsk.day);
     
     return currentDate != previousDate;
   }

@@ -35,26 +35,22 @@ class UserProvider with ChangeNotifier {
     clearError();
 
     try {
-      // Загружаем данные пользователя через API
       final response = await apiService.getCurrentUser();
-      
-      // Бэкенд возвращает данные напрямую, без обертки 'user'
       final userData = response;
+      final avatar = apiService.resolveUrl(userData['avatar_url']);
       _currentUser = User(
         id: userData['id']?.toString() ?? '',
         name: '${userData['first_name'] ?? ''} ${userData['last_name'] ?? ''}'.trim(),
         username: userData['username'] ?? '',
-        avatarUrl: userData['avatar_url'],
+        avatarUrl: avatar,
         isOnline: userData['is_online'] ?? false,
         lastSeen: userData['last_seen'] != null 
             ? DateTime.parse(userData['last_seen']) 
             : DateTime.now(),
         phoneNumber: userData['phone_number'] ?? '',
       );
-        
       setLoading(false);
       notifyListeners();
-      
       if (kDebugMode) {
         print('👤 Данные пользователя загружены: ${_currentUser?.name}');
       }
@@ -79,16 +75,14 @@ class UserProvider with ChangeNotifier {
       if (avatarUrl != null) userData['avatar_url'] = avatarUrl;
 
       final response = await apiService.updateUser(userData);
-
-      // Бэкенд может вернуть либо полностью обновленного пользователя,
-      // либо success + user. Поддерживаем оба варианта.
       final updated = response['user'] ?? response;
       if (updated != null && (updated is Map<String, dynamic>)) {
+        final avatar = apiService.resolveUrl(updated['avatar_url']);
         _currentUser = User(
           id: updated['id']?.toString() ?? _currentUser?.id ?? '',
           name: updated['name'] ?? _currentUser?.name ?? '',
           username: updated['username'] ?? _currentUser?.username ?? '',
-          avatarUrl: updated['avatar_url'] ?? _currentUser?.avatarUrl,
+          avatarUrl: avatar,
           isOnline: updated['is_online'] ?? _currentUser?.isOnline ?? false,
           lastSeen: updated['last_seen'] != null
               ? DateTime.parse(updated['last_seen'])
@@ -99,13 +93,67 @@ class UserProvider with ChangeNotifier {
         notifyListeners();
         return true;
       }
-
       setError(response['message'] ?? 'Ошибка обновления данных');
       setLoading(false);
       return false;
     } catch (e) {
       setError(e.toString());
       setLoading(false);
+      return false;
+    }
+  }
+
+  Future<void> fetchContacts() async {
+    try {
+      final list = await apiService.getContacts();
+      _contacts = list.map<User>((userData) {
+        final avatar = apiService.resolveUrl(userData['avatar_url']);
+        return User(
+          id: userData['id'].toString(),
+          name: '${userData['first_name'] ?? ''} ${userData['last_name'] ?? ''}'.trim(),
+          username: userData['username'] ?? '',
+          avatarUrl: avatar,
+          isOnline: userData['is_online'] ?? false,
+          lastSeen: userData['last_seen'] != null
+              ? DateTime.parse(userData['last_seen'])
+              : DateTime.now(),
+          phoneNumber: userData['phone_number'] ?? '',
+        );
+      }).toList();
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to fetch contacts: $e');
+      }
+    }
+  }
+
+  Future<bool> addContactById(String userId) async {
+    try {
+      final id = int.tryParse(userId) ?? -1;
+      if (id <= 0) return false;
+      await apiService.addContact(id);
+      await fetchContacts();
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to add contact: $e');
+      }
+      return false;
+    }
+  }
+
+  Future<bool> removeContactById(String userId) async {
+    try {
+      final id = int.tryParse(userId) ?? -1;
+      if (id <= 0) return false;
+      await apiService.removeContact(id);
+      await fetchContacts();
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to remove contact: $e');
+      }
       return false;
     }
   }
@@ -122,19 +170,17 @@ class UserProvider with ChangeNotifier {
 
     try {
       final response = await apiService.searchUsersByQuery(query);
-      
       _searchResults = response.map<User>((userData) => User(
         id: userData['id'].toString(),
         name: userData['name'] ?? '',
         username: userData['username'] ?? '',
-        avatarUrl: userData['avatar_url'],
+        avatarUrl: apiService.resolveUrl(userData['avatar_url']),
         isOnline: userData['is_online'] ?? false,
         lastSeen: userData['last_seen'] != null 
             ? DateTime.parse(userData['last_seen']) 
             : DateTime.now(),
         phoneNumber: userData['phone_number'] ?? '',
       )).toList();
-      
       setLoading(false);
       notifyListeners();
     } catch (e) {

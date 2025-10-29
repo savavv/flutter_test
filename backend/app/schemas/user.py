@@ -34,6 +34,7 @@ class UserProfile(BaseModel):
     is_online: bool
     last_seen: datetime
     is_verified: bool
+    public_key: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -42,3 +43,7 @@ class UserProfile(BaseModel):
 
 class UserResponse(UserProfile):
     pass
+
+
+class PublicKeyUpdate(BaseModel):
+    public_key: str

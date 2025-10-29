@@ -54,7 +54,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     );
 
     if (!success) {
-      return; // Ошибка уже показана в AuthProvider
+      return; 
     }
 
     // Загружаем данные пользователя из API после успешного обновления

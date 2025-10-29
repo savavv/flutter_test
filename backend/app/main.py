@@ -47,7 +47,7 @@ create_tables()
 
 # Create FastAPI app with disabled default docs
 app = FastAPI(
-    title="Telegram Clone API",
+    title="KS54 Messanger API",
     description="Backend API for messaging application with advanced security",
     version="1.0.0",
     docs_url=None,  # Disable default docs

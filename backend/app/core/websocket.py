@@ -75,6 +75,13 @@ class ConnectionManager:
         }
         await self.broadcast(json.dumps(payload))
 
+    async def send_message_notification(self, message_data: dict) -> None:
+        payload = {
+            "type": "message",
+            "data": message_data or {},
+        }
+        await self.broadcast(json.dumps(payload))
+
 
 # Export singleton manager
 manager = ConnectionManager()

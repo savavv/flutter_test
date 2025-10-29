@@ -3,7 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://127.0.0.1:8000/api/v1';
+  static const String baseUrl = 'http://192.168.0.111:8000/api/v1';
   late Dio _dio;
 
   ApiService() {
@@ -17,7 +17,6 @@ class ApiService {
       },
     ));
 
-    // Добавляем интерцептор для логирования в debug режиме
     if (kDebugMode) {
       _dio.interceptors.add(LogInterceptor(
         requestBody: true,
@@ -26,7 +25,6 @@ class ApiService {
       ));
     }
 
-    // Интерцептор для обработки ошибок
     _dio.interceptors.add(InterceptorsWrapper(
       onError: (error, handler) {
         if (kDebugMode) {
@@ -38,20 +36,56 @@ class ApiService {
     ));
   }
 
-  // Установка токена авторизации
+  String get _origin {
+    final uri = Uri.parse(baseUrl);
+    return '${uri.scheme}://${uri.host}:${uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80)}';
+  }
+
+  String? resolveUrl(String? url) {
+    if (url == null) return null;
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return null;
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      try {
+        final u = Uri.parse(trimmed);
+        // normalize dev hosts to current origin
+        if (u.host == '0.0.0.0' || u.host == '127.0.0.1' || u.host == 'localhost') {
+          final base = Uri.parse(_origin);
+          final normalized = Uri(
+            scheme: base.scheme,
+            host: base.host,
+            port: base.port,
+            path: u.path,
+            query: u.query,
+          );
+          return normalized.toString();
+        }
+        return trimmed;
+      } catch (_) {
+        return trimmed;
+      }
+    }
+    if (trimmed.startsWith('/files') || trimmed.startsWith('/static') || trimmed.startsWith('/uploads')) {
+      return '$_origin$trimmed';
+    }
+    final lower = trimmed.toLowerCase();
+    final isFileLike = lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif');
+    if (isFileLike) {
+      return trimmed.startsWith('/') ? '$_origin$trimmed' : '$_origin/$trimmed';
+    }
+    return null;
+  }
+
   void setAuthToken(String token) {
     _dio.options.headers['Authorization'] = 'Bearer $token';
   }
 
-  // Удаление токена авторизации
   void clearAuthToken() {
     _dio.options.headers.remove('Authorization');
   }
 
-  // Аутентификация
   Future<Map<String, dynamic>> sendSmsCode(String phoneNumber) async {
     try {
-      // Валидация длины номера телефона
       if (phoneNumber.length < 10 || phoneNumber.length > 20) {
         throw Exception('Номер телефона должен содержать от 10 до 20 символов');
       }
@@ -67,7 +101,6 @@ class ApiService {
 
   Future<Map<String, dynamic>> verifySmsCode(String phoneNumber, String code) async {
   try {
-    // Валидация кода подтверждения - теперь 4 символа
     if (code.isEmpty || code.length != 4) {
       throw Exception('Код подтверждения должен содержать 4 символа');
     }
@@ -84,8 +117,6 @@ class ApiService {
     throw _handleError(e);
   }
  }
-
-  // registerUser method removed - registration happens in verify_code endpoint
 
   Future<Map<String, dynamic>> login(String phoneNumber, String password) async {
     try {
@@ -110,7 +141,6 @@ class ApiService {
     }
   }
 
-  // Пользователи
   Future<Map<String, dynamic>> getCurrentUser() async {
     try {
       final response = await _dio.get('/users/me');
@@ -129,7 +159,6 @@ class ApiService {
     }
   }
 
-  // Контакты
   Future<List<dynamic>> searchUsersByQuery(String query) async {
     try {
       final response = await _dio.get('/users/search', queryParameters: { 'query': query });
@@ -157,6 +186,23 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> getUserById(String id) async {
+    try {
+      final response = await _dio.get('/users/$id');
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<void> setPublicKey(String publicKey) async {
+    try {
+      await _dio.put('/users/me/public-key', data: { 'public_key': publicKey });
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   Future<List<dynamic>> getContacts() async {
     try {
       final response = await _dio.get('/users/contacts');
@@ -166,21 +212,25 @@ class ApiService {
     }
   }
 
-  Future<List<dynamic>> searchUsers(String query) async {
+  Future<void> addContact(int userId) async {
     try {
-      final response = await _dio.get('/users/search', queryParameters: {
-        'q': query,
-      });
-      return response.data;
+      await _dio.post('/users/contacts/$userId');
     } catch (e) {
       throw _handleError(e);
     }
   }
 
-  // Чаты
+  Future<void> removeContact(int userId) async {
+    try {
+      await _dio.delete('/users/contacts/$userId');
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   Future<List<dynamic>> getChats() async {
     try {
-      final response = await _dio.get('/chats');
+      final response = await _dio.get('/chats/');
       return response.data;
     } catch (e) {
       throw _handleError(e);
@@ -189,7 +239,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> createChat(Map<String, dynamic> chatData) async {
     try {
-      final response = await _dio.post('/chats', data: chatData);
+      final response = await _dio.post('/chats/', data: chatData);
       return response.data;
     } catch (e) {
       throw _handleError(e);
@@ -205,10 +255,9 @@ class ApiService {
     }
   }
 
-  // Сообщения
   Future<List<dynamic>> getMessages(String chatId, {int? limit, int? offset}) async {
     try {
-      final response = await _dio.get('/chats/$chatId/messages', queryParameters: {
+      final response = await _dio.get('/messages/chat/$chatId', queryParameters: {
         if (limit != null) 'limit': limit,
         if (offset != null) 'offset': offset,
       });
@@ -220,21 +269,24 @@ class ApiService {
 
   Future<Map<String, dynamic>> sendMessage(String chatId, Map<String, dynamic> messageData) async {
     try {
-      final response = await _dio.post('/chats/$chatId/messages', data: messageData);
+      final payload = {
+        'chat_id': int.tryParse(chatId) ?? chatId,
+        ...messageData,
+      };
+      final response = await _dio.post('/messages/', data: payload);
       return response.data;
     } catch (e) {
       throw _handleError(e);
     }
   }
 
-  // Файлы
   Future<Map<String, dynamic>> uploadFile(String filePath, String fileType) async {
     try {
       FormData formData = FormData.fromMap({
         'file': await MultipartFile.fromFile(filePath),
         'file_type': fileType,
       });
-      
+
       final response = await _dio.post('/files/upload', data: formData);
       return response.data;
     } catch (e) {
@@ -242,16 +294,14 @@ class ApiService {
     }
   }
 
-  // WebSocket соединение с токеном (и опциональным chatId)
   String getWebSocketUrl({required String accessToken, int? chatId}) {
-    final baseWs = 'ws://127.0.0.1:8000/api/v1/ws';
+    final baseWs = 'ws://192.168.0.111:8000/api/v1/ws';
     if (chatId != null) {
       return '$baseWs/chat/$chatId/$accessToken';
     }
     return '$baseWs/$accessToken';
   }
 
-  // Обработка ошибок
   String _handleError(dynamic error) {
     if (error is DioException) {
       switch (error.type) {
@@ -262,7 +312,7 @@ class ApiService {
         case DioExceptionType.badResponse:
           final statusCode = error.response?.statusCode;
           final data = error.response?.data;
-          
+
           if (statusCode == 401) {
             return 'Неверные учетные данные';
           } else if (statusCode == 403) {
@@ -270,7 +320,6 @@ class ApiService {
           } else if (statusCode == 404) {
             return 'Ресурс не найден';
           } else if (statusCode == 422) {
-            // Ошибки валидации
             if (data is Map<String, dynamic> && data.containsKey('detail')) {
               if (data['detail'] is List) {
                 return data['detail'].join(', ');
@@ -299,5 +348,4 @@ class ApiService {
   }
 }
 
-// Глобальный экземпляр API сервиса
 final ApiService apiService = ApiService();

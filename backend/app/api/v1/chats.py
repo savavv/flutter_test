@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, aliased
 from sqlalchemy import and_, or_
 from typing import List, Optional
 from datetime import datetime
@@ -49,13 +49,23 @@ async def create_chat(
         
         other_user_id = chat_data.participant_ids[0]
         
-        # Check if private chat already exists
-        existing_chat = db.query(Chat).join(ChatParticipant).filter(
-            Chat.chat_type == ChatType.PRIVATE,
-            ChatParticipant.user_id == current_user.id
-        ).join(ChatParticipant, Chat.id == ChatParticipant.chat_id).filter(
-            ChatParticipant.user_id == other_user_id
-        ).first()
+        # Check if private chat already exists between current_user and other_user
+        cp1 = aliased(ChatParticipant)
+        cp2 = aliased(ChatParticipant)
+        existing_chat = (
+            db.query(Chat)
+            .join(cp1, cp1.chat_id == Chat.id)
+            .join(cp2, cp2.chat_id == Chat.id)
+            .filter(
+                Chat.chat_type == ChatType.PRIVATE,
+                Chat.is_active == True,
+                cp1.user_id == current_user.id,
+                cp2.user_id == other_user_id,
+                cp1.is_active == True,
+                cp2.is_active == True,
+            )
+            .first()
+        )
         
         if existing_chat:
             return existing_chat

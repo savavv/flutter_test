@@ -17,79 +17,19 @@ class ContactsScreen extends StatefulWidget {
 
 class _ContactsScreenState extends State<ContactsScreen> {
   final TextEditingController _searchController = TextEditingController();
-  List<User> _mockContacts = [];
 
   @override
   void initState() {
     super.initState();
-    _loadMockContacts();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<UserProvider>().fetchContacts();
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
-  }
-
-  void _loadMockContacts() {
-    setState(() {
-      _mockContacts = [
-        User(
-          id: 'contact1',
-          name: 'Анна Петрова',
-          username: 'anna_pet',
-          phoneNumber: '+7 (999) 123-45-67',
-          isOnline: true,
-          lastSeen: DateTime.now(),
-          avatarUrl: null,
-        ),
-        User(
-          id: 'contact2',
-          name: 'Михаил Иванов',
-          username: 'mike_ivan',
-          phoneNumber: '+7 (999) 234-56-78',
-          isOnline: false,
-          lastSeen: DateTime.now().subtract(const Duration(minutes: 30)),
-          avatarUrl: null,
-        ),
-        User(
-          id: 'contact3',
-          name: 'Елена Смирнова',
-          username: 'elena_sm',
-          phoneNumber: '+7 (999) 345-67-89',
-          isOnline: true,
-          lastSeen: DateTime.now(),
-          avatarUrl: null,
-        ),
-        User(
-          id: 'contact4',
-          name: 'Дмитрий Козлов',
-          username: 'dmitry_koz',
-          phoneNumber: '+7 (999) 456-78-90',
-          isOnline: false,
-          lastSeen: DateTime.now().subtract(const Duration(hours: 5)),
-          avatarUrl: null,
-        ),
-        User(
-          id: 'contact5',
-          name: 'Ольга Волкова',
-          username: 'olga_volk',
-          phoneNumber: '+7 (999) 567-89-01',
-          isOnline: true,
-          lastSeen: DateTime.now(),
-          avatarUrl: null,
-        ),
-        User(
-          id: 'contact6',
-          name: 'Сергей Морозов',
-          username: 'sergey_mor',
-          phoneNumber: '+7 (999) 678-90-12',
-          isOnline: false,
-          lastSeen: DateTime.now().subtract(const Duration(days: 1)),
-          avatarUrl: null,
-        ),
-      ];
-    });
   }
 
   @override
@@ -132,7 +72,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   Widget _buildContactsList() {
     final userProvider = Provider.of<UserProvider>(context);
-    final allContacts = [..._mockContacts, ...userProvider.contacts];
+    final allContacts = [...userProvider.contacts];
     final filteredContacts = _searchController.text.isEmpty
         ? allContacts
         : allContacts.where((contact) {
@@ -221,89 +161,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          if (contact.isOnline)
-            Container(
-              width: 12,
-              height: 12,
-              decoration: const BoxDecoration(
-                color: Colors.green,
-                shape: BoxShape.circle,
-              ),
-            ),
-          const SizedBox(width: 8),
-          PopupMenuButton<String>(
-            onSelected: (value) => _handleContactAction(value, contact),
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'message',
-                child: Row(
-                  children: [
-                    Icon(Icons.message, color: Colors.blue),
-                    SizedBox(width: 8),
-                    Text('Написать'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'call',
-                child: Row(
-                  children: [
-                    Icon(Icons.call, color: Colors.green),
-                    SizedBox(width: 8),
-                    Text('Позвонить'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'video',
-                child: Row(
-                  children: [
-                    Icon(Icons.videocam, color: Colors.purple),
-                    SizedBox(width: 8),
-                    Text('Видеозвонок'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'details',
-                child: Row(
-                  children: [
-                    Icon(Icons.info, color: Colors.orange),
-                    SizedBox(width: 8),
-                    Text('Подробности'),
-                  ],
-                ),
-              ),
-            ],
-            child: const Icon(Icons.more_vert),
-          ),
+        children: const [
+          Icon(Icons.more_vert),
         ],
       ),
-      onTap: () => _showContactDetails(contact),
+      onTap: () => _startChat(contact),
     );
   }
 
-  void _handleContactAction(String action, User contact) {
-    switch (action) {
-      case 'message':
-        _startChat(contact);
-        break;
-      case 'call':
-        _makeCall(contact, false);
-        break;
-      case 'video':
-        _makeCall(contact, true);
-        break;
-      case 'details':
-        _showContactDetails(contact);
-        break;
-    }
-  }
-
-  void _startChat(User contact) {
+  Future<void> _startChat(User contact) async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    final chat = chatProvider.ensurePrivateChatWith(contact.id, contact.name, contactAvatar: contact.avatarUrl);
+    final chat = await chatProvider.createOrGetPrivateChat(contact.id, contact.name, contactAvatar: contact.avatarUrl);
+    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ChatScreen(chatId: chat.id),
@@ -311,119 +180,19 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
-  void _makeCall(User contact, bool isVideo) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${isVideo ? 'Видео' : 'Аудио'} звонок ${contact.name}'),
-        backgroundColor: Colors.green,
-      ),
-    );
-  }
-
-  void _showContactDetails(User contact) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Информация о контакте'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: CircleAvatar(
-                radius: 40,
-                backgroundColor: Colors.grey[300],
-                backgroundImage: contact.avatarUrl != null
-                    ? NetworkImage(contact.avatarUrl!)
-                    : null,
-                child: contact.avatarUrl == null
-                    ? Text(
-                        contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?',
-                        style: const TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      )
-                    : null,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text('Имя: ${contact.name}'),
-            Text('Username: @${contact.username}'),
-            Text('Телефон: ${contact.phoneNumber}'),
-            Text('Статус: ${contact.isOnline ? 'Онлайн' : 'Был(а) в сети ${_formatLastSeen(contact.lastSeen)}'}'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Закрыть'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _startChat(contact);
-            },
-            child: const Text('Написать'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showAddContactDialog() {
     final queryController = TextEditingController();
-    final isPhone = ValueNotifier<bool>(true);
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Добавить контакт'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                const Text('Поиск по:'),
-                const SizedBox(width: 8),
-                ValueListenableBuilder<bool>(
-                  valueListenable: isPhone,
-                  builder: (_, value, __) {
-                    return ToggleButtons(
-                      isSelected: [value, !value],
-                      onPressed: (index) => isPhone.value = index == 0,
-                      children: const [
-                        Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: Text('Телефон'),
-                        ),
-                        Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: Text('Username'),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ValueListenableBuilder<bool>(
-              valueListenable: isPhone,
-              builder: (_, value, __) {
-                return TextField(
-                  controller: queryController,
-                  decoration: InputDecoration(
-                    labelText: value ? 'Номер телефона' : 'Username',
-                    hintText: value ? '+7 (999) 123-45-67' : '@username',
-                    prefixIcon: Icon(value ? Icons.phone : Icons.alternate_email),
-                  ),
-                  keyboardType: value ? TextInputType.phone : TextInputType.text,
-                );
-              },
-            ),
-          ],
+        content: TextField(
+          controller: queryController,
+          decoration: const InputDecoration(
+            labelText: 'Телефон или @username',
+            prefixIcon: Icon(Icons.search),
+          ),
         ),
         actions: [
           TextButton(
@@ -434,9 +203,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
             onPressed: () async {
               final query = queryController.text.trim();
               if (query.isEmpty) return;
-              final isPhoneValue = isPhone.value;
               Navigator.pop(context);
-              await _addContactViaApi(query, isPhoneValue);
+              await _addContactViaApi(query);
             },
             child: const Text('Добавить'),
           ),
@@ -445,14 +213,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
-  Future<void> _addContactViaApi(String query, bool byPhone) async {
+  Future<void> _addContactViaApi(String query) async {
     final userProvider = Provider.of<UserProvider>(context, listen: false);
     try {
-      final normalized = byPhone
-          ? query
-          : (query.startsWith('@') ? query.substring(1) : query);
-
-      // Используем /users/search?query=... (бэкенд поддерживает contains по телефону/юзернейму/имени)
+      final normalized = query.startsWith('@') ? query.substring(1) : query;
       final results = await apiService.searchUsersByQuery(normalized);
       if (results.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -460,42 +224,23 @@ class _ContactsScreenState extends State<ContactsScreen> {
         );
         return;
       }
-
-      // Берем первый релевантный результат
       final userJson = results.first as Map<String, dynamic>;
-      final user = User(
-        id: userJson['id'].toString(),
-        name: '${userJson['first_name'] ?? ''} ${userJson['last_name'] ?? ''}'.trim(),
-        username: userJson['username'] ?? '',
-        avatarUrl: userJson['avatar_url'],
-        isOnline: userJson['is_online'] ?? false,
-        lastSeen: userJson['last_seen'] != null ? DateTime.parse(userJson['last_seen']) : DateTime.now(),
-        phoneNumber: userJson['phone_number'] ?? '',
-      );
-      userProvider.addContact(user);
-      setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Контакт добавлен'), backgroundColor: Colors.green),
-      );
+      final userId = userJson['id'].toString();
+      final ok = await userProvider.addContactById(userId);
+      if (ok) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Контакт добавлен'), backgroundColor: Colors.green),
+        );
+        setState(() {});
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось добавить контакт'), backgroundColor: Colors.red),
+        );
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Не удалось добавить: $e'), backgroundColor: Colors.red),
       );
-    }
-  }
-
-  String _formatLastSeen(DateTime lastSeen) {
-    final now = DateTime.now();
-    final difference = now.difference(lastSeen);
-
-    if (difference.inDays > 0) {
-      return '${difference.inDays} дн. назад';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours} ч. назад';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes} мин. назад';
-    } else {
-      return 'только что';
     }
   }
 }

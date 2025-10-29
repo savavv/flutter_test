@@ -1,7 +1,3 @@
-"""
-Advanced encryption module for Telegram Clone
-Provides AES-256-GCM encryption for sensitive data
-"""
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes, serialization
@@ -16,8 +12,6 @@ from app.core.config import settings
 
 
 class EncryptionManager:
-    """Advanced encryption manager for sensitive data"""
-    
     def __init__(self):
         self.encryption_key = self._derive_key(settings.encryption_key)
         self.fernet = Fernet(self._create_fernet_key())
